@@ -1,6 +1,10 @@
+import datetime
+import time
+from .pyproject import NAME
+
 # https://stackoverflow.com/questions/4842424/list-of-ansi-color-escape-sequences
 # https://en.wikipedia.org/wiki/ANSI_escape_code#3-bit_and_4-bit
-COLORS_FG = {
+COLORS = {
   'BLACK': '\33[30m',
   'RED': '\33[31m',
   'GREEN': '\33[32m',
@@ -17,72 +21,128 @@ COLORS_FG = {
   'BRIGHT_MAGENTA': '\33[95m',
   'BRIGHT_CYAN': '\33[96m',
   'BRIGHT_WHITE': '\33[97m',
-}
-COLORS_STYLE = {
-  'RESET': '\33[0m',
-  'BOLD': '\33[1m',
+  # Styles.
+  'RESET': '\33[0m',  # Note, Portainer doesn't like 00 here, so we'll use 0. Should be fine...
+  'BOLD': '\33[01m',
   'NORMAL': '\33[22m',
-  'ITALIC': '\33[3m',
-  'UNDERLINE': '\33[4m',
-  'BLINK': '\33[5m',
-  'BLINK2': '\33[6m',
-  'SELECTED': '\33[7m',
+  'ITALIC': '\33[03m',
+  'UNDERLINE': '\33[04m',
+  'BLINK': '\33[05m',
+  'BLINK2': '\33[06m',
+  'SELECTED': '\33[07m',
+  # Backgrounds
+  'BG_BLACK': '\33[40m',
+  'BG_RED': '\33[41m',
+  'BG_GREEN': '\33[42m',
+  'BG_YELLOW': '\33[43m',
+  'BG_BLUE': '\33[44m',
+  'BG_MAGENTA': '\33[45m',
+  'BG_CYAN': '\33[46m',
+  'BG_WHITE': '\33[47m',
+  'BG_GREY': '\33[100m',
+  'BG_BRIGHT_RED': '\33[101m',
+  'BG_BRIGHT_GREEN': '\33[102m',
+  'BG_BRIGHT_YELLOW': '\33[103m',
+  'BG_BRIGHT_BLUE': '\33[104m',
+  'BG_BRIGHT_MAGENTA': '\33[105m',
+  'BG_BRIGHT_CYAN': '\33[106m',
+  'BG_BRIGHT_WHITE': '\33[107m',
 }
-COLORS_BG = {
-  'BLACK': '\33[40m',
-  'RED': '\33[41m',
-  'GREEN': '\33[42m',
-  'YELLOW': '\33[43m',
-  'BLUE': '\33[44m',
-  'MAGENTA': '\33[45m',
-  'CYAN': '\33[46m',
-  'WHITE': '\33[47m',
-  'GREY': '\33[100m',
-  'BRIGHT_RED': '\33[101m',
-  'BRIGHT_GREEN': '\33[102m',
-  'BRIGHT_YELLOW': '\33[103m',
-  'BRIGHT_BLUE': '\33[104m',
-  'BRIGHT_MAGENTA': '\33[105m',
-  'BRIGHT_CYAN': '\33[106m',
-  'BRIGHT_WHITE': '\33[107m',
-}
 
 
-def log_welcome(num_nodes=None):
-  """Logs the welcome message."""
-  msg = f"{COLORS_FG['GREEN']}{COLORS_STYLE['BOLD']}[rgthree] Loaded"
-  print()
-  if num_nodes:
-    print(f"{msg} {num_nodes} exciting nodes.{COLORS_STYLE['RESET']}")
-  else:
-    print(f"{msg}.{COLORS_STYLE['RESET']}")
-
-
-def log_node_success(node_name, message):
+def log_node_success(node_name, message, msg_color='RESET'):
   """Logs a success message."""
-  _log_node(COLORS_FG["GREEN"], node_name, message)
+  _log_node("BRIGHT_GREEN", node_name, message, msg_color=msg_color)
 
 
-def log_node_info(node_name, message):
+def log_node_info(node_name, message, msg_color='RESET'):
   """Logs an info message."""
-  _log_node(COLORS_FG["CYAN"], node_name, message)
+  _log_node("CYAN", node_name, message, msg_color=msg_color)
 
 
-def log_node_warn(node_name, message):
+def log_node_error(node_name, message, msg_color='RESET'):
+  """Logs an info message."""
+  _log_node("RED", node_name, message, msg_color=msg_color)
+
+
+def log_node_warn(node_name, message, msg_color='RESET'):
   """Logs an warn message."""
-  _log_node(COLORS_FG["YELLOW"], node_name, message)
+  _log_node("YELLOW", node_name, message, msg_color=msg_color)
 
 
-def log_node(node_name, message):
+def log_node(node_name, message, msg_color='RESET'):
   """Logs a message."""
-  _log_node(COLORS_FG["CYAN"], node_name, message)
+  _log_node("CYAN", node_name, message, msg_color=msg_color)
 
 
-def _log_node(color, node_name, message, prefix=''):
-  print(_get_log_msg(color, node_name, message, prefix=prefix))
+def _log_node(color, node_name, message, msg_color='RESET'):
+  """Logs for a node message."""
+  log(message, color=color, prefix=node_name.replace(" (rgthree)", ""), msg_color=msg_color)
 
 
-def _get_log_msg(color, node_name, message, prefix=''):
-  msg = f'{COLORS_STYLE["BOLD"]}{color}{prefix}[rgthree] {node_name.replace(" (rgthree)", "")}'
-  msg += f':{COLORS_STYLE["RESET"]} {message}'
-  return msg
+LOGGED = {}
+
+
+def log(message, color=None, msg_color=None, prefix=None, id=None, at_most_secs=None):
+  """Basic logging."""
+  now = int(time.time())
+  if id:
+    if at_most_secs is None:
+      raise ValueError('at_most_secs should be set if an id is set.')
+    if id in LOGGED:
+      last_logged = LOGGED[id]
+      if now < last_logged + at_most_secs:
+        return
+    LOGGED[id] = now
+  color = COLORS[color] if color is not None and color in COLORS else COLORS["BRIGHT_GREEN"]
+  msg_color = COLORS[msg_color] if msg_color is not None and msg_color in COLORS else ''
+  prefix = f'[{prefix}]' if prefix is not None else ''
+  msg = f'{color}[{NAME}]{prefix}'
+  msg += f'{msg_color} {message}{COLORS["RESET"]}'
+  print(msg)
+
+
+def log_known_message(message_type):
+  """A central place to log known alerts or messages."""
+  if message_type == 'NODES2.0':
+    log(
+      "ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes "
+      "and features, breaking some rendering as well as losing the ability to "
+      "access a node's properties (a vital part of many nodes). It also appears to run MUCH more "
+      "slowly spiking CPU usage and causing jankiness and unresponsiveness, especially with large "
+      "workflows. Personally I am not planning to use the new Nodes 2.0 and, unfortunately, am not "
+      "able to invest the time to investigate and overhaul rgthree-comfy where needed. "
+      "If you have issues when Nodes 2.0 is enabled, I'd urge you to switch it off as well and "
+      "join me in hoping ComfyUI is not planning to deprecate the existing, stable canvas "
+      "rendering all together.\n",
+      color="YELLOW",
+      id="announcements.comfy-nodes-20.incompatible",
+      at_most_secs=60
+    )
+  elif message_type == 'PRIMITIVE_REROUTE':
+    log(
+      "You are using rgthree-comfy reroutes with a ComfyUI Primitive node. Unfortunately, ComfyUI "
+      "has removed support for this. While rgthree-comfy has a best-effort support fallback for "
+      "now, it may no longer work as expected and is strongly recommended you either replace the "
+      "Reroute node using ComfyUI's reroute node, or refrain from using the Primitive node "
+      "(you can always use the rgthree-comfy \"Power Primitive\" for non-combo primitives).",
+      prefix="Reroute",
+      color="YELLOW",
+      id=message_type,
+      at_most_secs=20
+    )
+  elif message_type == 'COMFYUI_SWWAN':
+    log(
+      "The installed custom node \"ComfyUI_Swwan\" conflicts with \"rgthree-comfy\" by crudely "
+      "copying its code causing it to no longer function correctly when both are installed. To "
+      "restore \"rgthree-comfy\" you may need to remove \"ComfyUI_Swwan,\" restart your server and "
+      "refresh the browser.\n",
+      prefix="Conflict",
+      color="YELLOW",
+      msg_color="RESET",
+      id=message_type,
+      at_most_secs=60
+    )
+  else:
+    return False
+  return True

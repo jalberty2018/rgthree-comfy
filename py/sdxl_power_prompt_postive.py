@@ -20,18 +20,19 @@ class RgthreeSDXLPowerPromptPositive:
 
   @classmethod
   def INPUT_TYPES(cls):  # pylint: disable = invalid-name, missing-function-docstring
-    SAVED_PROMPTS_FILES = folder_paths.get_filename_list('saved_prompts')
-    SAVED_PROMPTS_CONTENT = []
-    for filename in SAVED_PROMPTS_FILES:
-      with open(folder_paths.get_full_path('saved_prompts', filename), 'r') as f:
-        SAVED_PROMPTS_CONTENT.append(f.read())
+    # Removed Saved Prompts feature; No sure it worked any longer. UI should fail gracefully,
+    # TODO: Rip out saved prompt input data
+    SAVED_PROMPTS_FILES=[]
+    SAVED_PROMPTS_CONTENT=[]
     return {
       'required': {
         'prompt_g': ('STRING', {
-          'multiline': True
+          'multiline': True,
+          'dynamicPrompts': True
         }),
         'prompt_l': ('STRING', {
-          'multiline': True
+          'multiline': True,
+          'dynamicPrompts': True
         }),
       },
       'optional': {
@@ -105,33 +106,38 @@ class RgthreeSDXLPowerPromptPositive:
            values_insert_saved=None):
 
     if insert_lora == 'DISABLE LORAS':
-      prompt_g, loras_g, skipped_g, unfound_g = get_and_strip_loras(prompt_g, True)
-      prompt_l, loras_l, skipped_l, unfound_l = get_and_strip_loras(prompt_l, True)
+      prompt_g, loras_g, _skipped, _unfound = get_and_strip_loras(prompt_g,
+                                                                  True,
+                                                                  log_node=self.NAME)
+      prompt_l, loras_l, _skipped, _unfound = get_and_strip_loras(prompt_l,
+                                                                  True,
+                                                                  log_node=self.NAME)
       loras = loras_g + loras_l
       log_node_info(
         NODE_NAME,
         f'Disabling all found loras ({len(loras)}) and stripping lora tags for TEXT output.')
-    elif opt_model != None and opt_clip != None:
-      prompt_g, loras_g, skipped_g, unfound_g = get_and_strip_loras(prompt_g)
-      prompt_l, loras_l, skipped_l, unfound_l = get_and_strip_loras(prompt_l)
+    elif opt_model is not None and opt_clip is not None:
+      prompt_g, loras_g, _skipped, _unfound = get_and_strip_loras(prompt_g, log_node=self.NAME)
+      prompt_l, loras_l, _skipped, _unfound = get_and_strip_loras(prompt_l, log_node=self.NAME)
       loras = loras_g + loras_l
-      if len(loras):
+      if len(loras) > 0:
         for lora in loras:
           opt_model, opt_clip = LoraLoader().load_lora(opt_model, opt_clip, lora['lora'],
                                                        lora['strength'], lora['strength'])
           log_node_success(NODE_NAME, f'Loaded "{lora["lora"]}" from prompt')
         log_node_info(NODE_NAME, f'{len(loras)} Loras processed; stripping tags for TEXT output.')
     elif '<lora:' in prompt_g or '<lora:' in prompt_l:
-      _prompt_stripped_g, loras_g, skipped_g, unfound_g = get_and_strip_loras(prompt_g, True)
-      _prompt_stripped_l, loras_l, skipped_l, unfound_l = get_and_strip_loras(prompt_l, True)
-      loras = len(loras_g) + len(loras_l)
-      unfound_loras = len(unfound_g) + len(unfound_l)
-      total_loras = loras + unfound_loras + len(skipped_g) + len(skipped_l)
-      if total_loras:
-        log_node_warn(NODE_NAME, f'Found {total_loras} lora tags in prompt but model & clip were not supplied!')
-        if unfound_loras:
-          log_node_warn(NODE_NAME, f'Note: {unfound_loras} lora tags were not found!')
-        log_node_info(NODE_NAME, 'Loras not processed but NOT stripped. Keeping in case used for TEXT output.')
+      _prompt_g, loras_g, _skipped, _unfound = get_and_strip_loras(prompt_g,
+                                                                   True,
+                                                                   log_node=self.NAME)
+      _prompt_l, loras_l, _skipped, _unfound = get_and_strip_loras(prompt_l,
+                                                                   True,
+                                                                   log_node=self.NAME)
+      loras = loras_g + loras_l
+      if len(loras):
+        log_node_warn(
+          NODE_NAME, f'Found {len(loras)} lora tags in prompt but model & clip were not supplied!')
+        log_node_info(NODE_NAME, 'Loras not processed, keeping for TEXT output.')
 
     conditioning = self.get_conditioning(prompt_g, prompt_l, opt_clip, opt_clip_width,
                                          opt_clip_height, target_width, target_height, crop_width,
@@ -144,20 +150,29 @@ class RgthreeSDXLPowerPromptPositive:
     """Checks the inputs and gets the conditioning."""
     conditioning = None
     if opt_clip is not None:
-      if opt_clip_width and opt_clip_height:
+      do_regular_clip_text_encode = opt_clip_width and opt_clip_height
+      if do_regular_clip_text_encode:
         target_width = target_width if target_width and target_width > 0 else opt_clip_width
         target_height = target_height if target_height and target_height > 0 else opt_clip_height
         crop_width = crop_width if crop_width and crop_width > 0 else 0
         crop_height = crop_height if crop_height and crop_height > 0 else 0
-        conditioning = CLIPTextEncodeSDXL().encode(opt_clip, opt_clip_width, opt_clip_height,
-                                                   crop_width, crop_height, target_width,
-                                                   target_height, prompt_g, prompt_l)[0]
+        try:
+          conditioning = CLIPTextEncodeSDXL().encode(opt_clip, opt_clip_width, opt_clip_height,
+                                                     crop_width, crop_height, target_width,
+                                                     target_height, prompt_g, prompt_l)[0]
+        except Exception:
+          do_regular_clip_text_encode = True
+          log_node_info(
+            self.NAME,
+            'Exception while attempting to CLIPTextEncodeSDXL, will fall back to standard encoding.'
+          )
       else:
-        # If we got an opt_clip, but no clip_width or _height, then use normal CLIPTextEncode
         log_node_info(
           self.NAME,
-          'CLIP supplied, but not CLIP_WIDTH and CLIP_HEIGHT. Text encoding will use standard encoding with prompt_g and prompt_l concatenated.'
-        )
+          'CLIP supplied, but not CLIP_WIDTH and CLIP_HEIGHT. Text encoding will use standard ' +
+          'encoding with prompt_g and prompt_l concatenated.')
+
+      if not do_regular_clip_text_encode:
         conditioning = CLIPTextEncode().encode(
           opt_clip, f'{prompt_g if prompt_g else ""}\n{prompt_l if prompt_l else ""}')[0]
     return conditioning

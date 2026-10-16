@@ -78,6 +78,22 @@ def new_context(base_ctx, **kwargs):
   return new_ctx
 
 
+def merge_new_context(*args):
+  """Creates a new context by merging provided contexts with the latter overriding same fields."""
+  new_ctx = {}
+  for key in _all_context_input_output_data:
+    if key == "base_ctx":
+      continue
+    v = None
+    # Move backwards through the passed contexts until we find a value and use it.
+    for ctx in reversed(args):
+      v = ctx[key] if not is_context_empty(ctx) and key in ctx else None
+      if v is not None:
+        break
+    new_ctx[key] = v
+  return new_ctx
+
+
 def get_context_return_tuple(ctx, inputs_list=None):
   """Returns a tuple for returning in the order of the inputs list."""
   if inputs_list is None:
