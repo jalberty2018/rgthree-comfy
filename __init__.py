@@ -115,9 +115,23 @@ log_welcome(num_nodes=len(nodes))
 # other nodes' (like "pipe" nodes, efficieny nodes). With `Context Big` nodes being
 # introduced, the number of input recursion that happens in these methods is exponential with a
 # saving of 1000's of percentage points over.
-if 'patch_recursive_execution' in RGTHREE_CONFIG and RGTHREE_CONFIG['patch_recursive_execution']:
+patch_recursive_execution = RGTHREE_CONFIG.get('patch_recursive_execution', False)
+if patch_recursive_execution:
   import execution
 
+  # Newer ComfyUI execution engines no longer expose the legacy recursive API.
+  # Check before changing anything, including PromptExecutor.execute.
+  patch_recursive_execution = all(callable(getattr(execution, name, None)) for name in (
+    'recursive_output_delete_if_changed',
+    'recursive_will_execute',
+    'get_input_data',
+    'map_node_over_list',
+  )) and callable(getattr(getattr(execution, 'PromptExecutor', None), 'execute', None))
+  if not patch_recursive_execution:
+    print('[rgthree] Skipping legacy recursive execution optimization: '
+          'this ComfyUI execution engine does not expose the required API.')
+
+if patch_recursive_execution:
   msg = "\33[32m[rgthree] Optimizing ComfyUI recursive execution. \33[33mIf queueing and/or re-queueing seems "
   msg += "broken, change \"patch_recursive_execution\" to false in rgthree_config.json \33[0m"
   print(msg)
